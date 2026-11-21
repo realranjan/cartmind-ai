@@ -1,0 +1,188 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="420" viewBox="0 0 1200 420" role="img" aria-labelledby="hero-title hero-desc">
+  <title id="hero-title">CartMind AI — Autonomous E-Commerce Shopping Assistant</title>
+  <desc id="hero-desc">Production-grade conversational shopping platform with multi-tool agentic routing, text-to-SQL catalogue search, multimodal shoe matching, and persistent memory.</desc>
+
+  <defs>
+    <linearGradient id="bg-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#090D16"/>
+      <stop offset="50%" stop-color="#0D1322"/>
+      <stop offset="100%" stop-color="#070A10"/>
+    </linearGradient>
+
+    <linearGradient id="accent-cyan" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#38BDF8"/>
+      <stop offset="100%" stop-color="#818CF8"/>
+    </linearGradient>
+
+    <linearGradient id="card-grad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#161F30"/>
+      <stop offset="100%" stop-color="#0F1726"/>
+    </linearGradient>
+
+    <linearGradient id="pill-grad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#1E293B"/>
+      <stop offset="100%" stop-color="#334155"/>
+    </linearGradient>
+
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="24" result="blur"/>
+      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+    </filter>
+
+    <pattern id="grid-pattern" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1E293B" stroke-width="0.75" stroke-opacity="0.35"/>
+    </pattern>
+  </defs>
+
+  <!-- Background Base -->
+  <rect width="1200" height="420" rx="16" fill="url(#bg-grad)"/>
+  <rect width="1200" height="420" rx="16" fill="url(#grid-pattern)"/>
+  <rect width="1200" height="420" rx="16" fill="none" stroke="#1E293B" stroke-width="1.5"/>
+
+  <!-- Subtle glow orbs -->
+  <circle cx="220" cy="140" r="140" fill="#38BDF8" fill-opacity="0.06" filter="url(#glow)"/>
+  <circle cx="950" cy="220" r="160" fill="#818CF8" fill-opacity="0.07" filter="url(#glow)"/>
+
+  <!-- Left: Brand and Value Proposition -->
+  <g transform="translate(56, 52)">
+    <!-- Eyebrow Badge -->
+    <rect width="254" height="28" rx="14" fill="#1E293B" stroke="#38BDF8" stroke-width="1" stroke-opacity="0.5"/>
+    <circle cx="16" cy="14" r="4" fill="#38BDF8"/>
+    <text x="28" y="19" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="600" fill="#38BDF8" letter-spacing="1">AGENTIC COMMERCE ENGINE</text>
+
+    <!-- Title -->
+    <text x="0" y="86" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="52" font-weight="800" fill="#F8FAFC" letter-spacing="-1">CartMind<tspan fill="url(#accent-cyan)"> AI</tspan></text>
+
+    <!-- Tagline -->
+    <text x="0" y="126" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="17" font-weight="400" fill="#94A3B8">
+      Autonomous shopping intelligence with text-to-SQL catalogue
+    </text>
+    <text x="0" y="152" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="17" font-weight="400" fill="#94A3B8">
+      reasoning, multimodal visual search, and long-term memory.
+    </text>
+
+    <!-- Tech Badges Row 1 -->
+    <g transform="translate(0, 195)">
+      <!-- Badge 1: React 19 -->
+      <rect width="90" height="26" rx="6" fill="#111827" stroke="#1F2937" stroke-width="1"/>
+      <text x="45" y="17" font-family="ui-monospace, monospace" font-size="11" font-weight="600" fill="#38BDF8" text-anchor="middle">React 19</text>
+
+      <!-- Badge 2: FastAPI -->
+      <g transform="translate(100, 0)">
+        <rect width="84" height="26" rx="6" fill="#111827" stroke="#1F2937" stroke-width="1"/>
+        <text x="42" y="17" font-family="ui-monospace, monospace" font-size="11" font-weight="600" fill="#34D399" text-anchor="middle">FastAPI</text>
+      </g>
+
+      <!-- Badge 3: LangChain -->
+      <g transform="translate(194, 0)">
+        <rect width="102" height="26" rx="6" fill="#111827" stroke="#1F2937" stroke-width="1"/>
+        <text x="51" y="17" font-family="ui-monospace, monospace" font-size="11" font-weight="600" fill="#FBBF24" text-anchor="middle">LangChain</text>
+      </g>
+
+      <!-- Badge 4: Gemini 2.5 -->
+      <g transform="translate(306, 0)">
+        <rect width="112" height="26" rx="6" fill="#111827" stroke="#1F2937" stroke-width="1"/>
+        <text x="56" y="17" font-family="ui-monospace, monospace" font-size="11" font-weight="600" fill="#A78BFA" text-anchor="middle">Gemini 2.5</text>
+      </g>
+
+      <!-- Badge 5: Postgres -->
+      <g transform="translate(428, 0)">
+        <rect width="98" height="26" rx="6" fill="#111827" stroke="#1F2937" stroke-width="1"/>
+        <text x="49" y="17" font-family="ui-monospace, monospace" font-size="11" font-weight="600" fill="#60A5FA" text-anchor="middle">PostgreSQL</text>
+      </g>
+    </g>
+
+    <!-- Key Metrics Highlight Strip -->
+    <g transform="translate(0, 245)">
+      <rect width="526" height="68" rx="10" fill="#0F172A" stroke="#1E293B" stroke-width="1"/>
+
+      <!-- Metric 1 -->
+      <g transform="translate(24, 16)">
+        <text x="0" y="20" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="22" font-weight="700" fill="#38BDF8">4 Tools</text>
+        <text x="0" y="38" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="11" font-weight="500" fill="#64748B">SQL · RAG · Save · Cart</text>
+      </g>
+
+      <line x1="168" y1="14" x2="168" y2="54" stroke="#1E293B" stroke-width="1"/>
+
+      <!-- Metric 2 -->
+      <g transform="translate(192, 16)">
+        <text x="0" y="20" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="22" font-weight="700" fill="#34D399">3,600+</text>
+        <text x="0" y="38" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="11" font-weight="500" fill="#64748B">Live Catalogue SKUs</text>
+      </g>
+
+      <line x1="338" y1="14" x2="338" y2="54" stroke="#1E293B" stroke-width="1"/>
+
+      <!-- Metric 3 -->
+      <g transform="translate(362, 16)">
+        <text x="0" y="20" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="22" font-weight="700" fill="#F472B6">100%</text>
+        <text x="0" y="38" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="11" font-weight="500" fill="#64748B">Streaming SSE Jobs</text>
+      </g>
+    </g>
+  </g>
+
+  <!-- Right: Native Visual Specimen (Agent Chain & Dialogue) -->
+  <g transform="translate(620, 36)">
+    <!-- Terminal / Chat Mock Container -->
+    <rect width="524" height="348" rx="12" fill="url(#card-grad)" stroke="#1E293B" stroke-width="1.2"/>
+
+    <!-- Window Bar -->
+    <path d="M 0 12 Q 0 0 12 0 L 512 0 Q 524 0 524 12 L 524 38 L 0 38 Z" fill="#0D1524"/>
+    <circle cx="20" cy="19" r="5" fill="#EF4444" fill-opacity="0.8"/>
+    <circle cx="36" cy="19" r="5" fill="#F59E0B" fill-opacity="0.8"/>
+    <circle cx="52" cy="19" r="5" fill="#10B981" fill-opacity="0.8"/>
+    <text x="262" y="23" font-family="ui-monospace, monospace" font-size="11" font-weight="500" fill="#64748B" text-anchor="middle">cartmind-agent-runtime · sse-stream</text>
+
+    <!-- User Message Bubble -->
+    <g transform="translate(20, 52)">
+      <rect width="484" height="42" rx="8" fill="#1E293B" stroke="#334155" stroke-width="0.75"/>
+      <text x="14" y="19" font-family="ui-monospace, monospace" font-size="11" font-weight="600" fill="#94A3B8">Shopper:</text>
+      <text x="76" y="19" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="12" font-weight="400" fill="#F1F5F9">"Show white Nike under ₹3,500 and what's your return policy?"</text>
+      <text x="14" y="34" font-family="ui-monospace, monospace" font-size="10" font-weight="500" fill="#64748B">intent: multi-part query (Text-to-SQL + FAQ RAG)</text>
+    </g>
+
+    <!-- Agent Execution Flow -->
+    <g transform="translate(20, 104)">
+      <!-- Step 1: SQL Execution -->
+      <rect width="484" height="48" rx="6" fill="#0B132B" stroke="#1D4ED8" stroke-width="1" stroke-opacity="0.5"/>
+      <circle cx="16" cy="16" r="4" fill="#38BDF8"/>
+      <text x="28" y="19" font-family="ui-monospace, monospace" font-size="11" font-weight="700" fill="#38BDF8">STEP 1 · Tool: text_to_sql</text>
+      <text x="28" y="36" font-family="ui-monospace, monospace" font-size="10" fill="#93C5FD">SELECT title, price, rating FROM products WHERE brand='Nike' AND price &lt;= 3500</text>
+
+      <!-- Step 2: FAQ Vector Search -->
+      <g transform="translate(0, 54)">
+        <rect width="484" height="48" rx="6" fill="#0B1B2B" stroke="#0D9488" stroke-width="1" stroke-opacity="0.5"/>
+        <circle cx="16" cy="16" r="4" fill="#2DD4BF"/>
+        <text x="28" y="19" font-family="ui-monospace, monospace" font-size="11" font-weight="700" fill="#2DD4BF">STEP 2 · Tool: faq_rag (Pinecone 1024-dim)</text>
+        <text x="28" y="36" font-family="ui-monospace, monospace" font-size="10" fill="#99F6E4">Top match: "Returns accepted within 30 days in original condition." (Score: 0.94)</text>
+      </g>
+    </g>
+
+    <!-- Verified Live Result Output Card -->
+    <g transform="translate(20, 216)">
+      <rect width="484" height="114" rx="8" fill="#131C2E" stroke="#1E293B" stroke-width="1"/>
+
+      <!-- Product Card Inner -->
+      <g transform="translate(14, 14)">
+        <rect width="52" height="52" rx="6" fill="#1E293B"/>
+        <text x="26" y="32" font-family="-apple-system, sans-serif" font-size="20" text-anchor="middle">👟</text>
+
+        <text x="64" y="19" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="13" font-weight="600" fill="#F8FAFC">Nike Revolution 6 Running Shoes</text>
+        <text x="64" y="37" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="13" font-weight="700" fill="#34D399">₹3,195 <tspan font-size="11" font-weight="400" fill="#94A3B8">(4.2 ★ · In Stock)</tspan></text>
+
+        <!-- Action Pills -->
+        <rect x="350" y="8" width="94" height="24" rx="4" fill="#2563EB"/>
+        <text x="397" y="24" font-family="-apple-system, sans-serif" font-size="11" font-weight="600" fill="#FFFFFF" text-anchor="middle">Add to Cart</text>
+
+        <!-- Divider -->
+        <line x1="0" y1="62" x2="456" y2="62" stroke="#1E293B" stroke-width="1"/>
+
+        <!-- Policy Answer Strip -->
+        <g transform="translate(0, 74)">
+          <rect width="78" height="18" rx="4" fill="#0F766E"/>
+          <text x="39" y="13" font-family="ui-monospace, monospace" font-size="9" font-weight="700" fill="#CCFBF1" text-anchor="middle">POLICY INFO</text>
+          <text x="88" y="13" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="11" font-weight="400" fill="#CBD5E1">Items can be returned within 30 days for a full refund.</text>
+        </g>
+      </g>
+    </g>
+  </g>
+</svg>

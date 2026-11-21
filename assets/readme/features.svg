@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="260" viewBox="0 0 1200 260" role="img" aria-labelledby="feat-title feat-desc">
+  <title id="feat-title">CartMind AI Core Capabilities</title>
+  <desc id="feat-desc">Four core pillars of the CartMind AI shopping platform: Text-to-SQL search, multimodal vision, Pinecone RAG policy QA, and persistent long-term memory.</desc>
+
+  <defs>
+    <linearGradient id="feat-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#080C14"/>
+      <stop offset="100%" stop-color="#0B1220"/>
+    </linearGradient>
+
+    <linearGradient id="card-surface" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#141C2B"/>
+      <stop offset="100%" stop-color="#0F1726"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1200" height="260" rx="14" fill="url(#feat-bg)"/>
+  <rect width="1200" height="260" rx="14" fill="none" stroke="#1E293B" stroke-width="1.5"/>
+
+  <!-- Card 1: Text-to-SQL -->
+  <g transform="translate(48, 30)">
+    <rect width="254" height="200" rx="10" fill="url(#card-surface)" stroke="#1E293B" stroke-width="1.2"/>
+    <rect width="36" height="36" rx="8" fill="#1E3A8A" fill-opacity="0.5" x="20" y="20"/>
+    <text x="38" y="44" font-family="-apple-system, sans-serif" font-size="18" text-anchor="middle">📊</text>
+
+    <text x="20" y="82" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="16" font-weight="700" fill="#F8FAFC">Text-to-SQL Engine</text>
+    <text x="20" y="104" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="12" font-weight="400" fill="#94A3B8">Translates natural requests into read-only SQL over 3,600+ catalogue SKUs.</text>
+
+    <g transform="translate(20, 148)">
+      <rect width="214" height="32" rx="6" fill="#0C192E" stroke="#2563EB" stroke-width="0.75"/>
+      <text x="10" y="20" font-family="ui-monospace, monospace" font-size="11" font-weight="600" fill="#60A5FA">SELECT * WHERE stock &gt; 0</text>
+    </g>
+  </g>
+
+  <!-- Card 2: Shop by Photo -->
+  <g transform="translate(322, 30)">
+    <rect width="254" height="200" rx="10" fill="url(#card-surface)" stroke="#1E293B" stroke-width="1.2"/>
+    <rect width="36" height="36" rx="8" fill="#065F46" fill-opacity="0.5" x="20" y="20"/>
+    <text x="38" y="44" font-family="-apple-system, sans-serif" font-size="18" text-anchor="middle">📷</text>
+
+    <text x="20" y="82" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="16" font-weight="700" fill="#F8FAFC">Shop by Photo</text>
+    <text x="20" y="104" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="12" font-weight="400" fill="#94A3B8">Gemini 2.5 Vision analyzes shoe images; refuses non-shoe uploads cleanly.</text>
+
+    <g transform="translate(20, 148)">
+      <rect width="214" height="32" rx="6" fill="#09251D" stroke="#059669" stroke-width="0.75"/>
+      <text x="10" y="20" font-family="ui-monospace, monospace" font-size="11" font-weight="600" fill="#34D399">Visual similarity match</text>
+    </g>
+  </g>
+
+  <!-- Card 3: Policy RAG -->
+  <g transform="translate(596, 30)">
+    <rect width="254" height="200" rx="10" fill="url(#card-surface)" stroke="#1E293B" stroke-width="1.2"/>
+    <rect width="36" height="36" rx="8" fill="#134E4A" fill-opacity="0.5" x="20" y="20"/>
+    <text x="38" y="44" font-family="-apple-system, sans-serif" font-size="18" text-anchor="middle">📚</text>
+
+    <text x="20" y="82" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="16" font-weight="700" fill="#F8FAFC">Pinecone Policy RAG</text>
+    <text x="20" y="104" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="12" font-weight="400" fill="#94A3B8">Grounds returns, warranty, and payment rules with 1024-dim embeddings.</text>
+
+    <g transform="translate(20, 148)">
+      <rect width="214" height="32" rx="6" fill="#0C2426" stroke="#0D9488" stroke-width="0.75"/>
+      <text x="10" y="20" font-family="ui-monospace, monospace" font-size="11" font-weight="600" fill="#2DD4BF">Zero policy hallucination</text>
+    </g>
+  </g>
+
+  <!-- Card 4: Persistent Memory -->
+  <g transform="translate(870, 30)">
+    <rect width="254" height="200" rx="10" fill="url(#card-surface)" stroke="#1E293B" stroke-width="1.2"/>
+    <rect width="36" height="36" rx="8" fill="#581C87" fill-opacity="0.5" x="20" y="20"/>
+    <text x="38" y="44" font-family="-apple-system, sans-serif" font-size="18" text-anchor="middle">🧠</text>
+
+    <text x="20" y="82" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="16" font-weight="700" fill="#F8FAFC">Supermemory Recall</text>
+    <text x="20" y="104" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="12" font-weight="400" fill="#94A3B8">Remembers shoe sizes, favorite brands, and price limits across user sessions.</text>
+
+    <g transform="translate(20, 148)">
+      <rect width="214" height="32" rx="6" fill="#21133B" stroke="#7C3AED" stroke-width="0.75"/>
+      <text x="10" y="20" font-family="ui-monospace, monospace" font-size="11" font-weight="600" fill="#A78BFA">User-scoped preferences</text>
+    </g>
+  </g>
+</svg>

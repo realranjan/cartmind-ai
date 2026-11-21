@@ -1,0 +1,209 @@
+"""Refresh product prices/ratings/availability from Flipkart."""
+import argparse
+import json
+import logging
+import re
+import sys
+import threading
+import time
+import urllib.error
+import urllib.request
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+load_dotenv(dotenv_path=Path(__file__).resolve().parent / ".env")
+
+from sqlalchemy import text  # noqa: E402
+from app.db.database import engine  # noqa: E402
+from app.db.models import now_ist  # noqa: E402
+
+logger = logging.getLogger(__name__)
+
+UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+      "(KHTML, like Gecko) Chrome/120.0 Safari/537.36")
+LD_JSON = re.compile(r'<script[^>]*application/ld\+json[^>]*>(.*?)</script>', re.DOTALL | re.I)
+
+
+DELISTED_COOLDOWN_DAYS = 30
+
+
+def fetch_product(url: str, timeout: int = 30, retries: int = 2):
+    """Return {price, rating, rating_count, availability} from the page's
+    JSON-LD, or None if it can't be parsed.
+    """
+    req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept-Language": "en-US,en;q=0.9"})
+    for attempt in range(retries + 1):
+        try:
+            html = urllib.request.urlopen(req, timeout=timeout).read().decode("utf-8", "ignore")
+            break
+        except urllib.error.URLError:
+            if attempt == retries:
+                raise
+            time.sleep(1.5 * (attempt + 1))
+
+    for block in LD_JSON.findall(html):
+        try:
+            data = json.loads(block.strip())
+        except json.JSONDecodeError:
+            continue
+        for item in (data if isinstance(data, list) else [data]):
+            if not isinstance(item, dict) or item.get("@type") != "Product":
+                continue
+            offers = item.get("offers") or {}
+            if isinstance(offers, list):
+                offers = offers[0] if offers else {}
+            rating = item.get("aggregateRating") or {}
+            price = offers.get("price")
+            brand = item.get("brand")
+            if isinstance(brand, dict):
+                brand = brand.get("name")
+            return {
+                "price": int(float(price)) if price is not None else None,
+                "brand": str(brand).strip() if brand else None,
+                "rating": float(rating["ratingValue"]) if rating.get("ratingValue") is not None else None,
+                "rating_count": int(rating["ratingCount"]) if rating.get("ratingCount") is not None else None,
+                "availability": str(offers.get("availability", "")).rsplit("/", 1)[-1] or None,
+            }
+    return None
+
+
+def main():
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except AttributeError:
+            pass
+
+    ap = argparse.ArgumentParser(description="Refresh product data from Flipkart JSON-LD.")
+    ap.add_argument("--limit", type=int, default=None, help="max products (oldest first)")
+    ap.add_argument("--delay", type=float, default=1.0, help="seconds each worker pauses between requests")
+    ap.add_argument("--workers", type=int, default=2, help="concurrent fetches (keep small — be polite; low also reduces Flipkart throttling)")
+    ap.add_argument("--dry-run", action="store_true", help="fetch and report, write nothing")
+    ap.add_argument("--missing-brand", action="store_true",
+                    help="only rows with no brand (backfill; these are newest so oldest-first misses them)")
+    ap.add_argument("--delisted-after", type=int, default=DELISTED_COOLDOWN_DAYS,
+                    help=f"re-check 'Unavailable' products only once they are this "
+                         f"many days stale (default {DELISTED_COOLDOWN_DAYS}; 0 = "
+                         f"treat them like any other row)")
+    args = ap.parse_args()
+
+    sql = "SELECT product_link, title, price, availability FROM product"
+    where = []
+    if args.missing_brand:
+        where.append("brand IS NULL")
+    if args.delisted_after > 0:
+        where.append(
+            "(availability IS DISTINCT FROM 'Unavailable'"
+            f" OR scraped_at IS NULL"
+            f" OR scraped_at < now() - interval '{int(args.delisted_after)} days')")
+    if where:
+        sql += " WHERE " + " AND ".join(where)
+    sql += " ORDER BY scraped_at NULLS FIRST"
+    if args.limit:
+        sql += f" LIMIT {int(args.limit)}"
+    with engine.connect() as c:
+        rows = c.execute(text(sql)).fetchall()
+
+    print(f"Refreshing {len(rows)} products (delay={args.delay}s"
+          f"{', DRY RUN' if args.dry_run else ''})\n")
+
+    counts = {"updated": 0, "failed": 0, "changed": 0, "delisted": 0, "removed": 0}
+    lock = threading.Lock()
+    progress = {"n": 0}
+    total = len(rows)
+
+    def remove(link, title):
+        """Delete a product that was still gone on its re-check after the cooldown."""
+        if not args.dry_run:
+            with engine.begin() as c:
+                c.execute(text("DELETE FROM product WHERE product_link = :link"), {"link": link})
+        with lock:
+            counts["removed"] += 1
+            progress["n"] += 1
+            print(f"  [{progress['n']}/{total}] REMOVED (still delisted on re-check) | {title[:35]}")
+        time.sleep(args.delay)
+
+    def process(row):
+        """Fetch and persist one product while updating thread-safe run counters.
+
+        A failed fetch still bumps scraped_at so the row moves to the back of the
+        oldest-first queue and every product is reached in rotation. A row already
+        'Unavailable' that returns an HTTP error or is still delisted on re-check
+        is deleted.
+        """
+        link, title, old_price, old_availability = row
+        title = title or ""
+        try:
+            info = fetch_product(link)
+        except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, OSError) as e:
+            if old_availability == "Unavailable" and isinstance(e, urllib.error.HTTPError):
+                return remove(link, title)
+            if not args.dry_run:
+                with engine.begin() as c:
+                    c.execute(text("UPDATE product SET scraped_at = :now WHERE product_link = :link"),
+                              {"now": now_ist(), "link": link})
+            with lock:
+                counts["failed"] += 1
+                progress["n"] += 1
+                print(f"  [{progress['n']}/{total}] FETCH FAILED {str(e)[:40]} | {title[:35]}")
+            time.sleep(args.delay)
+            return
+
+        if not info or info["price"] is None:
+            if old_availability == "Unavailable":
+                return remove(link, title)
+            if not args.dry_run:
+                with engine.begin() as c:
+                    c.execute(text("""
+                        UPDATE product SET availability = 'Unavailable', scraped_at = :now
+                         WHERE product_link = :link
+                    """), {"now": now_ist(), "link": link})
+            with lock:
+                counts["delisted"] += 1
+                progress["n"] += 1
+                print(f"  [{progress['n']}/{total}] DELISTED (no product markup) | {title[:35]}")
+            time.sleep(args.delay)
+            return
+
+        if not args.dry_run:
+            with engine.begin() as c:
+                c.execute(text("""
+                    UPDATE product
+                       SET price = :price,
+                           brand = COALESCE(:brand, brand),
+                           avg_rating = COALESCE(:rating, avg_rating),
+                           total_ratings = COALESCE(:rating_count, total_ratings),
+                           availability = :availability,
+                           scraped_at = :now
+                     WHERE product_link = :link
+                """), {**info, "now": now_ist(), "link": link})
+
+        moved = old_price is not None and info["price"] != old_price
+        with lock:
+            if not args.dry_run:
+                counts["updated"] += 1
+            progress["n"] += 1
+            if moved:
+                counts["changed"] += 1
+                print(f"  [{progress['n']}/{total}] Rs {old_price} -> Rs {info['price']} "
+                      f"({info['price'] - old_price:+d}) {info['availability']} | {title[:35]}")
+        time.sleep(args.delay)
+
+    with ThreadPoolExecutor(max_workers=args.workers) as pool:
+        list(pool.map(process, rows))
+
+    updated, failed, changed, delisted, removed = (
+        counts["updated"], counts["failed"], counts["changed"], counts["delisted"], counts["removed"])
+
+    print(f"\nDone. checked={len(rows)} updated={updated} price_changed={changed} "
+          f"delisted={delisted} removed={removed} failed={failed}")
+    if failed and failed == len(rows):
+        print("Every product failed to FETCH — Flipkart is likely blocking or offline. "
+              "Check fetch_product() against a live page before trusting a scheduled run.")
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

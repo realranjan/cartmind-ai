@@ -1,0 +1,1060 @@
+"""FastAPI app: auth, chats, the message/job API, saved items, cart and orders."""
+import os
+import sys
+import logging
+from pathlib import Path
+from dotenv import load_dotenv
+
+backend_root = Path(__file__).resolve().parent
+env_path = backend_root / "app" / ".env"
+load_dotenv(dotenv_path=env_path)
+
+from fastapi import FastAPI, HTTPException, Depends, Header, Request
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+import base64
+import binascii
+from typing import List, Optional
+import re
+from datetime import datetime, timezone, timedelta
+import uuid
+import bcrypt
+import json
+import asyncio
+from contextlib import asynccontextmanager
+import time
+from collections import defaultdict, deque
+
+from jose import jwt, JWTError
+
+from slowapi import Limiter
+from slowapi.errors import RateLimitExceeded
+from fastapi.responses import JSONResponse, StreamingResponse
+
+logger = logging.getLogger(__name__)
+
+sys.path.append(str(backend_root))
+
+from app.logging_setup import configure_logging, request_context
+configure_logging()
+
+from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
+from app.db.database import engine, Base, SessionLocal
+from app.db.models import EcommerceAccount, LoginFailure, Chat, Message
+from app import jobs
+from app import orders
+from app.memory_store import recall as memory_recall
+from app.memory_store import remember as memory_remember
+from app.vision import extract_shoe_query
+from app.api_keys import (delete_cloudflare, delete_gemini_key, is_unlimited,
+                          provider_settings, save_cloudflare, save_gemini_key,
+                          select_provider)
+from app.llm_provider import CF_MODEL, GEMINI_DEFAULT, use_gemini_key
+from app.observability import (init_observability, set_output as set_trace_output,
+                               shutdown as shutdown_observability, trace_message)
+
+JWT_SECRET = os.getenv("JWT_SECRET")
+if not JWT_SECRET:
+    raise ValueError("JWT_SECRET environment variable is not set.")
+JWT_ALGORITHM = "HS256"
+JWT_EXPIRY_HOURS = 12
+
+def create_token(user_id: int, username: str) -> str:
+    payload = {
+        "sub": str(user_id),
+        "username": username,
+        "exp": datetime.now(timezone.utc) + timedelta(hours=JWT_EXPIRY_HOURS),
+    }
+    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+def get_current_user(authorization: str = Header(...)) -> dict:
+    """Extract and verify JWT from Authorization header. Returns {"user_id": int, "username": str}."""
+    token = authorization.removeprefix("Bearer ").strip()
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        return {"user_id": int(payload["sub"]), "username": payload["username"]}
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid or expired token.")
+
+Base.metadata.create_all(bind=engine)
+
+def _identity_key(request: Request) -> str:
+    """Rate-limit key: the authenticated user. Only signed-in endpoints use this limiter."""
+    auth = request.headers.get("authorization", "")
+    if auth.startswith("Bearer "):
+        try:
+            payload = jwt.decode(auth[7:].strip(), JWT_SECRET, algorithms=[JWT_ALGORITHM])
+            return f"user:{payload['sub']}"
+        except JWTError:
+            pass
+    return "anonymous"
+
+
+limiter = Limiter(key_func=_identity_key)
+_auth_attempts: dict[str, deque] = defaultdict(deque)
+
+
+def _limit_by_username(action: str, username: str, per_minute: int) -> None:
+    """Per-username limit for signup and login, which run before a user is signed in."""
+    now, key = time.monotonic(), f"{action}:{username.lower()}"
+    hits = _auth_attempts[key]
+    while hits and now - hits[0] >= 60:
+        hits.popleft()
+    if len(hits) >= per_minute:
+        raise HTTPException(status_code=429, detail="Too many attempts. Try again in a minute.",
+                            headers={"Retry-After": str(int(60 - (now - hits[0])) + 1)})
+    hits.append(now)
+
+RUN_WORKER_IN_PROCESS = os.getenv("RUN_WORKER_IN_PROCESS", "1") == "1"
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    task, stop = None, asyncio.Event()
+    if RUN_WORKER_IN_PROCESS:
+        from app.worker import worker_loop
+        task = asyncio.create_task(worker_loop(stop))
+        logger.info("Job worker started in-process.")
+    try:
+        yield
+    finally:
+        stop.set()
+        try:
+            if task:
+                try:
+                    from app.worker import SHUTDOWN_GRACE_S
+                    await asyncio.wait_for(task, timeout=SHUTDOWN_GRACE_S)
+                except (asyncio.TimeoutError, asyncio.CancelledError):
+                    task.cancel()
+                    logger.warning("Worker did not stop in time; cancelled.")
+        finally:
+            shutdown_observability()
+
+
+app = FastAPI(title="E-commerce Agent API", lifespan=lifespan)
+app.state.limiter = limiter
+
+init_observability()
+
+
+@app.middleware("http")
+async def add_request_id(request: Request, call_next):
+    """Bind one request_id to every log line for this request, and return it as
+    X-Request-ID so a user can quote it in a support request."""
+    request_id = uuid.uuid4().hex[:12]
+    with request_context(request_id):
+        response = await call_next(request)
+    response.headers["X-Request-ID"] = request_id
+    return response
+
+def error_response(status_code: int, error: str, detail: str, headers: dict | None = None):
+    return JSONResponse(status_code=status_code, headers=headers,
+                        content={"status": "error", "error": error, "detail": detail})
+
+
+def _seconds_to_ist_midnight() -> int:
+    now = now_ist()
+    tomorrow = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    return max(1, int((tomorrow - now).total_seconds()))
+
+
+@app.exception_handler(RateLimitExceeded)
+async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
+    return error_response(429, "rate_limit_exceeded", "Too many requests. Please slow down.",
+                          headers={"Retry-After": "60"})
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    return error_response(exc.status_code, "http_error", exc.detail,
+                          headers=getattr(exc, "headers", None))
+
+@app.exception_handler(Exception)
+async def generic_exception_handler(request: Request, exc: Exception):
+    return error_response(500, "internal_server_error", "An unexpected error occurred. Please try again later.")
+
+from fastapi.exceptions import RequestValidationError
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    errors = exc.errors()
+    messages = [e.get("msg", "").replace("Value error, ", "") for e in errors]
+    return error_response(422, "validation_error", messages[0] if len(messages) == 1 else "; ".join(messages))
+
+_DEFAULT_ORIGINS = "http://localhost:5173"
+ALLOWED_ORIGINS = [o.strip() for o in os.getenv("ALLOWED_ORIGINS", _DEFAULT_ORIGINS).split(",") if o.strip()]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=ALLOWED_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+@app.get("/")
+def root():
+    return {"status": "ok", "service": "cartmind-api", "version": "1.0.0"}
+
+@app.get("/api/health")
+def health_check():
+    return {"status": "ok", "service": "cartmind-api", "version": "1.0.0"}
+
+MAX_QUERY_LENGTH = 500
+MAX_HISTORY_ITEMS = 50
+MAX_IMAGE_B64_CHARS = 8_000_000
+MAX_IMAGE_THUMB_CHARS = 300_000
+MAX_USERNAME_LENGTH = 30
+MAX_EMAIL_LENGTH = 254
+EMAIL_RE = re.compile(
+    r"[A-Za-z0-9_+%-]+(?:\.[A-Za-z0-9_+%-]+)*@"
+    r"[A-Za-z0-9]+(?:[A-Za-z0-9-]*[A-Za-z0-9])?"
+    r"(?:\.[A-Za-z0-9]+(?:[A-Za-z0-9-]*[A-Za-z0-9])?)+"
+)
+MIN_PASSWORD_LENGTH = 8
+MAX_CHAT_TITLE_LENGTH = 60
+
+MAX_LOGIN_FAILURES = 5
+LOGIN_LOCKOUT_MINUTES = 15
+
+DAILY_MESSAGE_CAP = int(os.getenv("DAILY_MESSAGE_CAP", "5"))
+MAX_ACTIVE_JOBS = int(os.getenv("MAX_ACTIVE_JOBS", "2"))
+DAILY_TOKEN_CAP = int(os.getenv("DAILY_TOKEN_CAP", "200000"))
+JOB_EVENT_POLL_S = float(os.getenv("JOB_EVENT_POLL_S", "0.3"))
+SSE_KEEPALIVE_S = float(os.getenv("SSE_KEEPALIVE_S", "15"))
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+    @field_validator("username")
+    @classmethod
+    def normalize_username(cls, v):
+        return v.strip()
+
+class SignupRequest(BaseModel):
+    username: str
+    password: str
+
+    @field_validator("username")
+    @classmethod
+    def validate_username(cls, v):
+        v = v.strip()
+        if not v or len(v) < 3:
+            raise ValueError("Username must be at least 3 characters.")
+        if "@" in v:
+            if len(v) > MAX_EMAIL_LENGTH or not EMAIL_RE.fullmatch(v):
+                raise ValueError("Enter a valid email address (up to 254 characters).")
+        else:
+            if len(v) > MAX_USERNAME_LENGTH:
+                raise ValueError(f"Username must be at most {MAX_USERNAME_LENGTH} characters.")
+            if not re.fullmatch(r"[a-zA-Z0-9_]+", v):
+                raise ValueError("Username can only contain letters, numbers, and underscores.")
+        return v
+
+    @field_validator("password")
+    @classmethod
+    def validate_password(cls, v):
+        if len(v) < MIN_PASSWORD_LENGTH:
+            raise ValueError(f"Password must be at least {MIN_PASSWORD_LENGTH} characters.")
+        if not re.search(r'[A-Z]', v):
+            raise ValueError("Password must contain at least one uppercase letter.")
+        if not re.search(r'[a-z]', v):
+            raise ValueError("Password must contain at least one lowercase letter.")
+        if not re.search(r'[0-9]', v):
+            raise ValueError("Password must contain at least one digit.")
+        return v
+
+class QueryRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    query: str = ""
+    history: List[dict] = Field(default_factory=list, max_length=MAX_HISTORY_ITEMS)
+    image: Optional[str] = None
+    image_mime: Optional[str] = None
+    image_thumb: Optional[str] = None
+
+    @field_validator("query")
+    @classmethod
+    def validate_query(cls, v):
+        v = (v or "").strip()
+        if len(v) > MAX_QUERY_LENGTH:
+            raise ValueError(f"Query must be at most {MAX_QUERY_LENGTH} characters.")
+        return v
+
+    @field_validator("image")
+    @classmethod
+    def validate_image(cls, v):
+        if v and len(v) > MAX_IMAGE_B64_CHARS:
+            raise ValueError("That image is too large. Please use one under about 6MB.")
+        return v
+
+    @field_validator("image_thumb")
+    @classmethod
+    def validate_thumb(cls, v):
+        if v and len(v) > MAX_IMAGE_THUMB_CHARS:
+            raise ValueError("Image preview is too large.")
+        return v
+
+    @model_validator(mode="after")
+    def require_query_or_image(self):
+        if not self.query and not self.image:
+            raise ValueError("Query cannot be empty.")
+        return self
+
+
+class RenameChatRequest(BaseModel):
+    title: str
+
+    @field_validator("title")
+    @classmethod
+    def validate_title(cls, v):
+        v = v.strip()
+        if not v:
+            raise ValueError("Title cannot be empty.")
+        if len(v) > MAX_CHAT_TITLE_LENGTH:
+            raise ValueError(f"Title must be at most {MAX_CHAT_TITLE_LENGTH} characters.")
+        return v
+
+def hash_password(password: str) -> str:
+    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+
+def verify_password(password: str, hashed: str) -> bool:
+    """Verify against bcrypt hash, with fallback for legacy SHA-256 hashes."""
+    if hashed.startswith("$2b$") or hashed.startswith("$2a$"):
+        return bcrypt.checkpw(password.encode("utf-8"), hashed.encode("utf-8"))
+    import hashlib
+    return hashlib.sha256(password.encode("utf-8")).hexdigest() == hashed
+
+IST = timezone(timedelta(hours=5, minutes=30))
+def now_ist():
+    return datetime.now(IST)
+
+
+def _ist_midnight():
+    return now_ist().replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+def _messages_used_today(user_id: int) -> int:
+    """User messages sent since IST midnight — this IS the credit meter:
+    remaining = cap - this. No credits table and no reset job; at midnight the
+    window moves and the count is 0 again."""
+    start = _ist_midnight()
+    db = SessionLocal()
+    try:
+        return (
+            db.query(Message)
+            .filter(
+                Message.user_id == user_id,
+                Message.role == "user",
+                Message.created_at >= start,
+            )
+            .count()
+        )
+    finally:
+        db.close()
+
+
+def _iso(dt):
+    return dt.isoformat() if dt else None
+
+
+def _chat_to_dict(chat, messages):
+    """Assemble the exact API shape the frontend already expects, from table rows."""
+    return {
+        "id": chat.id,
+        "title": chat.title,
+        "messages": [{"role": m.role, "content": m.content} for m in messages],
+        "created_at": _iso(chat.created_at),
+        "updated_at": _iso(chat.updated_at),
+    }
+
+
+@app.post("/api/auth/signup")
+def signup(body: SignupRequest):
+    _limit_by_username("signup", body.username, 5)
+    db = SessionLocal()
+    try:
+        existing_user = db.query(EcommerceAccount).filter(EcommerceAccount.username == body.username).first()
+        if existing_user:
+            raise HTTPException(status_code=400, detail="Username already exists.")
+
+        hashed_password = hash_password(body.password)
+        new_user = EcommerceAccount(username=body.username, hashed_password=hashed_password)
+        db.add(new_user)
+        db.commit()
+        db.refresh(new_user)
+
+        token = create_token(new_user.id, new_user.username)
+        return {"token": token, "user_id": new_user.id, "username": new_user.username, "message": "Signup successful"}
+    finally:
+        db.close()
+
+@app.post("/api/auth/login")
+def login(body: LoginRequest):
+    _limit_by_username("login", body.username, 10)
+    db = SessionLocal()
+    try:
+        cutoff = now_ist() - timedelta(minutes=LOGIN_LOCKOUT_MINUTES)
+        recent_failures = db.query(LoginFailure).filter(
+            LoginFailure.username == body.username,
+            LoginFailure.created_at >= cutoff,
+        ).count()
+        if recent_failures >= MAX_LOGIN_FAILURES:
+            raise HTTPException(
+                status_code=429,
+                detail=f"Too many failed login attempts. Try again in {LOGIN_LOCKOUT_MINUTES} minutes.",
+            )
+
+        user = db.query(EcommerceAccount).filter(EcommerceAccount.username == body.username).first()
+        if not user or not verify_password(body.password, user.hashed_password):
+            db.add(LoginFailure(username=body.username))
+            db.commit()
+            raise HTTPException(status_code=401, detail="Invalid username or password.")
+
+        db.query(LoginFailure).filter(LoginFailure.username == body.username).delete()
+
+        if not user.hashed_password.startswith("$2b$"):
+            user.hashed_password = hash_password(body.password)
+        db.commit()
+
+        token = create_token(user.id, user.username)
+        return {"token": token, "user_id": user.id, "username": user.username, "message": "Login successful"}
+    finally:
+        db.close()
+
+@app.get("/api/chats")
+def get_chats(current_user: dict = Depends(get_current_user)):
+    db = SessionLocal()
+    try:
+        uid = current_user["user_id"]
+        chats = db.query(Chat).filter(Chat.user_id == uid).order_by(Chat.updated_at.desc()).all()
+        msgs = db.query(Message).filter(Message.user_id == uid).order_by(Message.id).all()
+        by_chat = defaultdict(list)
+        for m in msgs:
+            by_chat[m.chat_id].append(m)
+        return {"chats": {c.id: _chat_to_dict(c, by_chat[c.id]) for c in chats}}
+    finally:
+        db.close()
+
+@app.post("/api/chats/new")
+def create_new_chat(current_user: dict = Depends(get_current_user)):
+    db = SessionLocal()
+    try:
+        uid = current_user["user_id"]
+        for c in db.query(Chat).filter(Chat.user_id == uid, Chat.title == "New Chat").all():
+            if db.query(Message).filter(Message.chat_id == c.id).count() == 0:
+                return {"chat_id": c.id, "chat": _chat_to_dict(c, [])}
+
+        new_id = str(uuid.uuid4())
+        now = now_ist()
+        chat = Chat(id=new_id, user_id=uid, title="New Chat", created_at=now, updated_at=now)
+        db.add(chat)
+        db.commit()
+        return {"chat_id": new_id, "chat": _chat_to_dict(chat, [])}
+    finally:
+        db.close()
+
+
+class ApiKeysRequest(BaseModel):
+    """A shopper's own Gemini key, as typed into Settings."""
+    gemini_api_key: str = Field(min_length=20, max_length=300)
+
+    @field_validator("gemini_api_key")
+    @classmethod
+    def strip_key(cls, v):
+        return v.strip()
+
+
+class CloudflareKeysRequest(BaseModel):
+    account_id: str = Field(pattern=r"^[a-fA-F0-9]{32}$")
+    api_token: str = Field(min_length=20, max_length=300)
+
+
+class ProviderRequest(BaseModel):
+    provider: str
+
+
+@app.get("/api/account/api-keys")
+def get_api_keys(current_user: dict = Depends(get_current_user)):
+    """Expose the selected provider and whether credentials are saved, never the secrets."""
+    settings = provider_settings(current_user["user_id"])
+    key, token = settings["gemini_key"], settings["cloudflare_token"]
+    return {"selected": settings["selected"],
+            "gemini": {"saved": bool(key), "last4": key[-4:] if key else None},
+            "cloudflare": {"saved": bool(token and settings["cloudflare_account_id"]),
+                           "last4": token[-4:] if token else None,
+                           "account_id": settings["cloudflare_account_id"]}}
+
+
+@app.put("/api/account/provider")
+@limiter.limit("10/minute")
+def set_provider(body: ProviderRequest, request: Request,
+                 current_user: dict = Depends(get_current_user)):
+    try:
+        select_provider(current_user["user_id"], body.provider.upper())
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return {"selected": body.provider.upper()}
+
+
+@app.put("/api/account/api-keys/cloudflare")
+@limiter.limit("10/minute")
+def set_cloudflare_keys(body: CloudflareKeysRequest, request: Request,
+                        current_user: dict = Depends(get_current_user)):
+    """Make one minimal model request to check account and token before saving."""
+    import httpx
+    url = f"https://api.cloudflare.com/client/v4/accounts/{body.account_id}/ai/run/{CF_MODEL}"
+    try:
+        response = httpx.post(url, headers={"Authorization": f"Bearer {body.api_token}"},
+                              json={"messages": [{"role": "user", "content": "Hi"}],
+                                    "max_tokens": 1}, timeout=20)
+        response.raise_for_status()
+        if not response.json().get("success", True):
+            raise ValueError("Cloudflare rejected these credentials")
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=503, detail="Cloudflare is unavailable. Try again later.") from e
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 429:
+            raise HTTPException(status_code=429, detail="Cloudflare usage limit reached.") from e
+        status = 400 if e.response.status_code in (400, 401, 403, 404) else 502
+        raise HTTPException(status_code=status,
+                            detail="Cloudflare rejected the credentials or model access." if status == 400
+                            else "Cloudflare is unavailable. Try again later.") from e
+    except ValueError as e:
+        raise HTTPException(status_code=400,
+                            detail="Cloudflare rejected that Account ID or API token.") from e
+    save_cloudflare(current_user["user_id"], body.account_id, body.api_token)
+    return {"message": "Cloudflare credentials saved."}
+
+
+@app.delete("/api/account/api-keys/cloudflare")
+def delete_cloudflare_keys(current_user: dict = Depends(get_current_user)):
+    delete_cloudflare(current_user["user_id"])
+    return {"message": "Cloudflare credentials removed."}
+
+
+@app.put("/api/account/api-keys")
+@limiter.limit("10/minute")
+def set_api_keys(body: ApiKeysRequest, request: Request,
+                 current_user: dict = Depends(get_current_user)):
+    """Validate the key against Gemini before storing it, so a typo fails here, not mid-chat."""
+    from google import genai
+    try:
+        client = genai.Client(api_key=body.gemini_api_key)  # held: an unreferenced client closes itself
+        client.models.get(model=GEMINI_DEFAULT)
+    except Exception as e:
+        logger.info("Rejected a Gemini key for user %s: %s", current_user["user_id"], e)
+        raise HTTPException(status_code=400,
+                            detail="Gemini rejected that API key. Check it and try again.")
+    save_gemini_key(current_user["user_id"], body.gemini_api_key)
+    return {"message": "Gemini API key saved."}
+
+
+@app.delete("/api/account/api-keys/gemini")
+def delete_api_key(current_user: dict = Depends(get_current_user)):
+    """Remove the shopper's key; they fall back to the app's key and its daily credits."""
+    delete_gemini_key(current_user["user_id"])
+    return {"message": "Gemini API key removed."}
+
+
+@app.get("/api/account/credits")
+def get_credits(current_user: dict = Depends(get_current_user)):
+    """Daily message credits lift only while the selected provider is user-paid."""
+    if is_unlimited(provider_settings(current_user["user_id"])):
+        return {"unlimited": True, "cap": None, "used": None, "remaining": None,
+                "token_cap": None, "tokens_used": None}
+    used = _messages_used_today(current_user["user_id"])
+    tokens = jobs.tokens_used_today(current_user["user_id"], _ist_midnight())
+    return {"unlimited": False, "cap": DAILY_MESSAGE_CAP, "used": used,
+            "remaining": max(0, DAILY_MESSAGE_CAP - used),
+            "token_cap": DAILY_TOKEN_CAP, "tokens_used": tokens}
+
+
+def _sse(event_type: str, data, seq: int | None = None) -> str:
+    """Format one Server-Sent Event. `seq` is the client's resume cursor: it
+    reconnects with ?after=<last seq> and picks up exactly where it left off."""
+    payload = {"type": event_type, "data": data}
+    if seq is not None:
+        payload["seq"] = seq
+    return f"data: {json.dumps(payload)}\n\n"
+
+
+@app.post("/api/chats/{chat_id}/message", status_code=202)
+@limiter.limit("30/minute")
+async def send_message(
+    chat_id: str,
+    body: QueryRequest,
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+):
+    """Accept the message and hand back a job id. The agent runs in the worker."""
+    user_id = current_user["user_id"]
+
+    if idempotency_key:
+        existing = await asyncio.to_thread(jobs.find_by_idempotency_key, user_id, idempotency_key)
+        if existing:
+            return {"job_id": existing, "status": "queued", "idempotent_replay": True}
+
+    midnight_in = _seconds_to_ist_midnight()
+    settings = await asyncio.to_thread(provider_settings, user_id)
+    if settings["selected"] != "FREE" and not is_unlimited(settings):
+        raise HTTPException(status_code=400,
+                            detail="The selected provider's credentials are unavailable. Update Settings.")
+    use_gemini_key(settings["gemini_key"] if settings["selected"] == "GEMINI" else None)
+    unlimited = is_unlimited(settings)
+
+    if not unlimited and await asyncio.to_thread(_messages_used_today, user_id) >= DAILY_MESSAGE_CAP:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Daily limit reached — {DAILY_MESSAGE_CAP} messages a day. Resets at midnight IST.",
+            headers={"Retry-After": str(midnight_in)},
+        )
+
+    if DAILY_TOKEN_CAP > 0 and not unlimited:
+        used = await asyncio.to_thread(jobs.tokens_used_today, user_id, _ist_midnight())
+        if used >= DAILY_TOKEN_CAP:
+            raise HTTPException(
+                status_code=429,
+                detail="Daily usage limit reached. Resets at midnight IST.",
+                headers={"Retry-After": str(midnight_in)},
+            )
+
+    if await asyncio.to_thread(jobs.active_job_count, user_id) >= MAX_ACTIVE_JOBS:
+        raise HTTPException(
+            status_code=429,
+            detail=f"You already have {MAX_ACTIVE_JOBS} messages in progress. Wait for one to finish.",
+            headers={"Retry-After": "10"},
+        )
+
+    image_query = None
+    if body.image:
+        try:
+            image_bytes = base64.b64decode(body.image, validate=True)
+        except (binascii.Error, ValueError):
+            raise HTTPException(status_code=400,
+                                detail="That image couldn't be read. Please try another photo.")
+        with trace_message(body.query or "Image search", user_id, chat_id,
+                           name="image-recognition") as vision_span:
+            image_query = await asyncio.to_thread(
+                extract_shoe_query, image_bytes, body.image_mime or "image/jpeg") or ""
+            set_trace_output(vision_span, image_query)
+
+    stored = body.query or (f"Image search: {image_query}" if image_query else "Image search")
+    if body.image_thumb:
+        stored = f"{stored}\n[[SHOEIMG]]{body.image_thumb}"
+
+    def _accept():
+        """Save the question and create the job in ONE transaction, so the
+        transcript can never show a question with no job behind it."""
+        db = SessionLocal()
+        try:
+            chat = db.query(Chat).filter(Chat.id == chat_id, Chat.user_id == user_id).first()
+            if chat is None:
+                return None
+            db.add(Message(chat_id=chat_id, user_id=user_id, role="user", content=stored))
+            if chat.title in ("New Chat", "", None):
+                head = stored.split("\n[[SHOEIMG]]")[0]
+                chat.title = head[:25] + ("..." if len(head) > 25 else "")
+            chat.updated_at = now_ist()
+            job_id = jobs.create_job(user_id, chat_id, body.query, body.history,
+                                     idempotency_key=idempotency_key, db=db,
+                                     image_query=image_query, billing_mode=settings["selected"])
+            db.commit()
+            return job_id
+        finally:
+            db.close()
+
+    try:
+        job_id = await asyncio.to_thread(_accept)
+    except IntegrityError:
+        existing = await asyncio.to_thread(jobs.find_by_idempotency_key, user_id, idempotency_key)
+        if existing:
+            return {"job_id": existing, "status": "queued", "idempotent_replay": True}
+        raise
+    if job_id is None:
+        raise HTTPException(status_code=404, detail="Chat not found.")
+    return {"job_id": job_id, "status": "queued"}
+
+
+class PreferenceRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    text: str = ""
+
+    @field_validator("text")
+    @classmethod
+    def validate_text(cls, v):
+        v = (v or "").strip()
+        if len(v) > 500:
+            raise ValueError("Preferences must be at most 500 characters.")
+        return v
+
+
+@app.get("/api/preferences")
+def read_preferences(current_user: dict = Depends(get_current_user)):
+    return {"preferences": memory_recall(
+        current_user["user_id"],
+        "this shopper's preferences: favourite brands, budget, gender")}
+
+
+@app.put("/api/preferences")
+def write_preferences(body: PreferenceRequest, current_user: dict = Depends(get_current_user)):
+    if body.text:
+        memory_remember(current_user["user_id"], f"Shopping preference: {body.text}")
+    return {"preferences": body.text}
+
+
+@app.delete("/api/preferences")
+def remove_preferences(current_user: dict = Depends(get_current_user)):
+    return {"preferences": ""}
+
+
+@app.get("/api/jobs/{job_id}")
+def get_job(job_id: str, current_user: dict = Depends(get_current_user)):
+    """Poll one job. Scoped by user — a job id alone never reveals someone
+    else's answer."""
+    job = jobs.get_job(job_id, current_user["user_id"])
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found.")
+    return {
+        "job_id": job["id"],
+        "status": job["status"],
+        "tool": job["tool"],
+        "result": job["result"],
+        "error": job["error"],
+        "created_at": _iso(job["created_at"]),
+        "finished_at": _iso(job["finished_at"]),
+    }
+
+
+@app.post("/api/jobs/{job_id}/cancel")
+def cancel_job(job_id: str, current_user: dict = Depends(get_current_user)):
+    """Request cancellation. A queued job stops immediately; a running one ends
+    at the worker's next heartbeat, which also aborts the in-flight model call."""
+    if not jobs.request_cancel(job_id, current_user["user_id"]):
+        raise HTTPException(status_code=404, detail="No cancellable job with that id.")
+    return {"job_id": job_id, "cancel_requested": True}
+
+
+@app.get("/api/jobs/{job_id}/events")
+async def job_events(
+    job_id: str,
+    request: Request,
+    after: int = 0,
+    current_user: dict = Depends(get_current_user),
+):
+    """Replay-then-tail the job's event log as SSE."""
+    user_id = current_user["user_id"]
+    if jobs.get_job(job_id, user_id) is None:
+        raise HTTPException(status_code=404, detail="Job not found.")
+
+    async def event_stream():
+        cursor, idle = after, 0.0
+        while True:
+            if await request.is_disconnected():
+                return
+            events = await asyncio.to_thread(jobs.read_events, job_id, cursor)
+            for ev in events:
+                cursor = ev["seq"]
+                if ev["type"] in ("done", "error"):
+                    payload = json.loads(ev["data"])
+                    if ev["type"] == "done":
+                        payload["chat"] = await asyncio.to_thread(_chat_payload, chat_of(job_id, user_id), user_id)
+                    yield _sse(ev["type"], payload, cursor)
+                    return
+                yield _sse(ev["type"], ev["data"], cursor)
+            if events:
+                idle = 0.0
+                continue
+            await asyncio.sleep(JOB_EVENT_POLL_S)
+            idle += JOB_EVENT_POLL_S
+            if idle >= SSE_KEEPALIVE_S:
+                idle = 0.0
+                yield ": keepalive\n\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"},
+    )
+
+
+def chat_of(job_id: str, user_id: int):
+    db = SessionLocal()
+    try:
+        return db.execute(
+            text("SELECT chat_id FROM jobs WHERE id = :id AND user_id = :uid"),
+            {"id": job_id, "uid": user_id},
+        ).scalar()
+    finally:
+        db.close()
+
+
+def _chat_payload(chat_id: str, user_id: int):
+    db = SessionLocal()
+    try:
+        chat = db.query(Chat).filter(Chat.id == chat_id, Chat.user_id == user_id).first()
+        if chat is None:
+            return None
+        msgs = db.query(Message).filter(Message.chat_id == chat_id).order_by(Message.id).all()
+        return _chat_to_dict(chat, msgs)
+    finally:
+        db.close()
+
+
+@app.patch("/api/chats/{chat_id}")
+def rename_chat(chat_id: str, body: RenameChatRequest, current_user: dict = Depends(get_current_user)):
+    db = SessionLocal()
+    try:
+        chat = db.query(Chat).filter(Chat.id == chat_id, Chat.user_id == current_user["user_id"]).first()
+        if not chat:
+            raise HTTPException(status_code=404, detail="Chat not found")
+        chat.title = body.title
+        chat.updated_at = now_ist()
+        db.commit()
+        msgs = db.query(Message).filter(Message.chat_id == chat_id).order_by(Message.id).all()
+        return {"chat": _chat_to_dict(chat, msgs)}
+    finally:
+        db.close()
+
+
+class SaveProductRequest(BaseModel):
+    pid: str
+
+    @field_validator("pid")
+    @classmethod
+    def validate_pid(cls, v):
+        v = v.strip().upper()
+        if not re.match(r'^[A-Z0-9]{6,32}$', v):
+            raise ValueError("Invalid product id.")
+        return v
+
+
+@app.get("/api/saved")
+def list_saved(current_user: dict = Depends(get_current_user)):
+    """Saved products joined to CURRENT catalog data, so the client can show
+    price movement since save without any extra bookkeeping."""
+    db = SessionLocal()
+    try:
+        rows = db.execute(text("""
+            SELECT s.pid, s.saved_price, s.created_at,
+                   p.title, p.brand, p.price, p.avg_rating, p.availability, p.product_link
+              FROM saved_products s
+              LEFT JOIN product p ON p.pid = s.pid
+             WHERE s.user_id = :uid
+             ORDER BY s.created_at DESC
+        """), {"uid": current_user["user_id"]}).fetchall()
+
+        saved = []
+        for r in rows:
+            m = r._mapping
+            current, was = m["price"], m["saved_price"]
+            saved.append({
+                "pid": m["pid"],
+                "title": m["title"],
+                "brand": m["brand"],
+                "price": current,
+                "saved_price": was,
+                "price_change": (current - was) if (current is not None and was is not None) else None,
+                "avg_rating": m["avg_rating"],
+                "availability": m["availability"],
+                "product_link": m["product_link"],
+                "saved_at": _iso(m["created_at"]),
+            })
+        return {"saved": saved}
+    finally:
+        db.close()
+
+
+@app.post("/api/saved")
+def save_product(body: SaveProductRequest, current_user: dict = Depends(get_current_user)):
+    db = SessionLocal()
+    try:
+        product = db.execute(
+            text("SELECT title, price FROM product WHERE pid = :pid"), {"pid": body.pid}
+        ).fetchone()
+        if not product:
+            raise HTTPException(status_code=404, detail="Product not found.")
+
+        db.execute(text("""
+            INSERT INTO saved_products (user_id, pid, saved_price, created_at)
+            VALUES (:uid, :pid, :price, :now)
+            ON CONFLICT (user_id, pid) DO NOTHING
+        """), {"uid": current_user["user_id"], "pid": body.pid,
+               "price": product._mapping["price"], "now": now_ist()})
+        db.commit()
+        return {"status": "ok", "pid": body.pid, "title": product._mapping["title"]}
+    finally:
+        db.close()
+
+
+@app.delete("/api/saved/{pid}")
+def unsave_product(pid: str, current_user: dict = Depends(get_current_user)):
+    db = SessionLocal()
+    try:
+        res = db.execute(
+            text("DELETE FROM saved_products WHERE user_id = :uid AND pid = :pid"),
+            {"uid": current_user["user_id"], "pid": pid.strip().upper()},
+        )
+        db.commit()
+        if not res.rowcount:
+            raise HTTPException(status_code=404, detail="Not saved.")
+        return {"status": "ok", "removed": pid}
+    finally:
+        db.close()
+
+
+class CartRequest(BaseModel):
+    pid: str
+
+    @field_validator("pid")
+    @classmethod
+    def validate_pid(cls, v):
+        v = v.strip().upper()
+        if not re.match(r"^[A-Z0-9]{6,32}$", v):
+            raise ValueError("Invalid product id.")
+        return v
+
+
+@app.get("/api/cart")
+def list_cart(current_user: dict = Depends(get_current_user)):
+    """Cart joined to CURRENT catalog data, like /saved — so a price change or a
+    product going out of stock shows up without any extra bookkeeping."""
+    db = SessionLocal()
+    try:
+        rows = db.execute(text("""
+            SELECT c.pid, c.quantity, c.created_at,
+                   p.title, p.brand, p.price, p.avg_rating, p.availability, p.product_link
+              FROM cart_items c
+              LEFT JOIN product p ON p.pid = c.pid
+             WHERE c.user_id = :uid
+             ORDER BY c.created_at DESC
+        """), {"uid": current_user["user_id"]}).fetchall()
+
+        items, total = [], 0
+        for r in rows:
+            m = r._mapping
+            qty = m["quantity"] or 1
+            if m["price"] is not None:
+                total += m["price"] * qty
+            items.append({
+                "pid": m["pid"],
+                "title": m["title"],
+                "brand": m["brand"],
+                "price": m["price"],
+                "quantity": qty,
+                "avg_rating": m["avg_rating"],
+                "availability": m["availability"],
+                "product_link": m["product_link"],
+                "added_at": _iso(m["created_at"]),
+            })
+        return {"cart": items, "total": total}
+    finally:
+        db.close()
+
+
+@app.post("/api/cart")
+def add_to_cart(body: CartRequest, current_user: dict = Depends(get_current_user)):
+    db = SessionLocal()
+    try:
+        product = db.execute(
+            text("SELECT title FROM product WHERE pid = :pid"), {"pid": body.pid}
+        ).fetchone()
+        if not product:
+            raise HTTPException(status_code=404, detail="Product not found.")
+
+        db.execute(text("""
+            INSERT INTO cart_items (user_id, pid, quantity, created_at)
+            VALUES (:uid, :pid, 1, :now)
+            ON CONFLICT (user_id, pid) DO NOTHING
+        """), {"uid": current_user["user_id"], "pid": body.pid, "now": now_ist()})
+        db.commit()
+        return {"status": "ok", "pid": body.pid, "title": product._mapping["title"]}
+    finally:
+        db.close()
+
+
+@app.delete("/api/cart/{pid}")
+def remove_from_cart(pid: str, current_user: dict = Depends(get_current_user)):
+    db = SessionLocal()
+    try:
+        res = db.execute(
+            text("DELETE FROM cart_items WHERE user_id = :uid AND pid = :pid"),
+            {"uid": current_user["user_id"], "pid": pid.strip().upper()},
+        )
+        db.commit()
+        if not res.rowcount:
+            raise HTTPException(status_code=404, detail="Not in cart.")
+        return {"status": "ok", "removed": pid}
+    finally:
+        db.close()
+
+
+@app.get("/api/orders")
+def list_orders(current_user: dict = Depends(get_current_user)):
+    """Orders with their lines. Reads order_items' OWN title/price rather than
+    joining product: the catalogue is re-scraped nightly, and an order must keep
+    saying what was bought at the time."""
+    db = SessionLocal()
+    try:
+        rows = db.execute(text("""
+            SELECT o.id, o.status, o.total, o.created_at,
+                   i.pid, i.title, i.price, i.quantity
+              FROM orders o
+              LEFT JOIN order_items i ON i.order_id = o.id
+             WHERE o.user_id = :uid
+             ORDER BY o.created_at DESC, i.id
+        """), {"uid": current_user["user_id"]}).fetchall()
+
+        orders, by_id = [], {}
+        for r in rows:
+            m = r._mapping
+            o = by_id.get(m["id"])
+            if o is None:
+                o = {"id": m["id"], "status": m["status"], "total": m["total"],
+                     "created_at": _iso(m["created_at"]), "items": []}
+                by_id[m["id"]] = o
+                orders.append(o)
+            if m["pid"] is not None:
+                o["items"].append({"pid": m["pid"], "title": m["title"],
+                                   "price": m["price"], "quantity": m["quantity"] or 1})
+        return {"orders": orders}
+    finally:
+        db.close()
+
+
+@app.post("/api/orders")
+def place_order(current_user: dict = Depends(get_current_user)):
+    """Turn the cart into an order and empty it."""
+    result, error = orders.place(current_user["user_id"])
+    if error:
+        raise HTTPException(status_code=error["code"], detail=error["message"])
+    return {"status": "ok", "order_id": result["order_id"], "total": result["total"]}
+
+
+@app.post("/api/orders/{order_id}/cancel")
+def cancel_order(order_id: int, current_user: dict = Depends(get_current_user)):
+    ok, error = orders.cancel(current_user["user_id"], order_id)
+    if not ok:
+        raise HTTPException(status_code=error["code"], detail=error["message"])
+    return {"status": "ok", "order_id": order_id}
+
+
+@app.delete("/api/chats/{chat_id}")
+def delete_chat(chat_id: str, current_user: dict = Depends(get_current_user)):
+    db = SessionLocal()
+    try:
+        chat = db.query(Chat).filter(Chat.id == chat_id, Chat.user_id == current_user["user_id"]).first()
+        if not chat:
+            raise HTTPException(status_code=404, detail="Chat not found")
+        db.query(Message).filter(Message.chat_id == chat_id).delete()
+        db.delete(chat)
+        db.commit()
+        return {"status": "ok", "deleted": chat_id}
+    finally:
+        db.close()
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)

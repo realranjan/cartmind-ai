@@ -1,0 +1,23 @@
+# Ruff config for CI (.github/workflows/ci.yml) and local runs: `ruff check backend/ tests/`
+line-length = 120
+
+# Notebooks are exploratory, not production code.
+extend-exclude = ["*.ipynb"]
+
+[lint]
+# Real mistakes (unused imports, undefined names), no style bikeshed. This is
+# ruff's documented default set, pinned explicitly: newer ruff versions widen the
+# implicit default (blind-except, isort, bugbear...), which turns a routine tool
+# upgrade into 100+ CI failures that flag nothing actually wrong.
+select = ["E4", "E7", "E9", "F"]
+ignore = [
+    # main.py and load_test.py must call load_dotenv() before importing app
+    # modules — database.py builds its engine at import and needs DATABASE_URL.
+    "E402",
+]
+
+[lint.per-file-ignores]
+# Harnesses print long measured-vs-expected lines; wrapping hurts readability.
+"backend/load_test.py" = ["E501"]
+"backend/evals/evaluate_agent_tuned.py" = ["E501"]
+"backend/evals/evaluate_agent_baseline.py" = ["E501"]

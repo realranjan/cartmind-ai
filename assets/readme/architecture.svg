@@ -1,0 +1,236 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="540" viewBox="0 0 1200 540" role="img" aria-labelledby="arch-title arch-desc">
+  <title id="arch-title">CartMind AI Architecture Diagram</title>
+  <desc id="arch-desc">Five-layer system architecture showing the React frontend, FastAPI gateway, async job queue, LangChain reasoning agent, and database and model providers.</desc>
+
+  <defs>
+    <linearGradient id="arch-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#080C14"/>
+      <stop offset="50%" stop-color="#0E1424"/>
+      <stop offset="100%" stop-color="#080C14"/>
+    </linearGradient>
+
+    <linearGradient id="layer-grad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#162032"/>
+      <stop offset="100%" stop-color="#0F1726"/>
+    </linearGradient>
+
+    <pattern id="arch-grid" width="30" height="30" patternUnits="userSpaceOnUse">
+      <path d="M 30 0 L 0 0 0 30" fill="none" stroke="#1E293B" stroke-width="0.5" stroke-opacity="0.3"/>
+    </pattern>
+  </defs>
+
+  <!-- Frame -->
+  <rect width="1200" height="540" rx="16" fill="url(#arch-bg)"/>
+  <rect width="1200" height="540" rx="16" fill="url(#arch-grid)"/>
+  <rect width="1200" height="540" rx="16" fill="none" stroke="#1E293B" stroke-width="1.5"/>
+
+  <!-- Section Header -->
+  <g transform="translate(56, 36)">
+    <text x="0" y="24" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="22" font-weight="700" fill="#F8FAFC">Full-Stack Architecture &amp; Execution Topology</text>
+    <text x="0" y="44" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="13" font-weight="400" fill="#94A3B8">End-to-end request lifecycle from React 19 client to async Postgres job queue and LangChain agent tools.</text>
+  </g>
+
+  <!-- Layer 1: Client Layer -->
+  <g transform="translate(56, 96)">
+    <rect width="200" height="390" rx="10" fill="url(#layer-grad)" stroke="#1E293B" stroke-width="1.2"/>
+    <rect width="200" height="36" rx="10" fill="#1E293B" fill-opacity="0.6"/>
+    <text x="100" y="23" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="12" font-weight="700" fill="#38BDF8" text-anchor="middle">1 · CLIENT (REACT 19)</text>
+
+    <!-- Sub-boxes -->
+    <g transform="translate(14, 52)">
+      <rect width="172" height="66" rx="6" fill="#0E1726" stroke="#334155" stroke-width="0.8"/>
+      <text x="12" y="24" font-family="-apple-system, sans-serif" font-size="12" font-weight="600" fill="#F1F5F9">Chat &amp; Stream Area</text>
+      <text x="12" y="42" font-family="ui-monospace, monospace" font-size="10" fill="#94A3B8">EventSource SSE</text>
+      <text x="12" y="56" font-family="ui-monospace, monospace" font-size="10" fill="#64748B">Incremental chunk render</text>
+    </g>
+
+    <g transform="translate(14, 130)">
+      <rect width="172" height="66" rx="6" fill="#0E1726" stroke="#334155" stroke-width="0.8"/>
+      <text x="12" y="24" font-family="-apple-system, sans-serif" font-size="12" font-weight="600" fill="#F1F5F9">Shop by Photo</text>
+      <text x="12" y="42" font-family="ui-monospace, monospace" font-size="10" fill="#94A3B8">Base64 canvas upload</text>
+      <text x="12" y="56" font-family="ui-monospace, monospace" font-size="10" fill="#64748B">Instant thumbnail preview</text>
+    </g>
+
+    <g transform="translate(14, 208)">
+      <rect width="172" height="66" rx="6" fill="#0E1726" stroke="#334155" stroke-width="0.8"/>
+      <text x="12" y="24" font-family="-apple-system, sans-serif" font-size="12" font-weight="600" fill="#F1F5F9">Compare Drawer</text>
+      <text x="12" y="42" font-family="ui-monospace, monospace" font-size="10" fill="#94A3B8">Shortlist 2–4 SKUs</text>
+      <text x="12" y="56" font-family="ui-monospace, monospace" font-size="10" fill="#64748B">Spec &amp; price delta join</text>
+    </g>
+
+    <g transform="translate(14, 286)">
+      <rect width="172" height="88" rx="6" fill="#0E1726" stroke="#334155" stroke-width="0.8"/>
+      <text x="12" y="24" font-family="-apple-system, sans-serif" font-size="12" font-weight="600" fill="#F1F5F9">Settings &amp; BYOK</text>
+      <text x="12" y="42" font-family="ui-monospace, monospace" font-size="10" fill="#94A3B8">Encrypted user keys</text>
+      <text x="12" y="56" font-family="ui-monospace, monospace" font-size="10" fill="#64748B">Gemini / Cloudflare toggle</text>
+      <text x="12" y="72" font-family="ui-monospace, monospace" font-size="10" fill="#64748B">Daily budget metering</text>
+    </g>
+  </g>
+
+  <!-- Connection 1 -> 2 -->
+  <path d="M 256 290 L 286 290" stroke="#38BDF8" stroke-width="1.5" stroke-dasharray="3,3"/>
+  <polygon points="286,290 280,287 280,293" fill="#38BDF8"/>
+
+  <!-- Layer 2: API Gateway & Job Queue -->
+  <g transform="translate(288, 96)">
+    <rect width="210" height="390" rx="10" fill="url(#layer-grad)" stroke="#1E293B" stroke-width="1.2"/>
+    <rect width="210" height="36" rx="10" fill="#1E293B" fill-opacity="0.6"/>
+    <text x="105" y="23" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="12" font-weight="700" fill="#34D399" text-anchor="middle">2 · FASTAPI &amp; ASYNC QUEUE</text>
+
+    <g transform="translate(14, 52)">
+      <rect width="182" height="66" rx="6" fill="#0E1726" stroke="#334155" stroke-width="0.8"/>
+      <text x="12" y="24" font-family="-apple-system, sans-serif" font-size="12" font-weight="600" fill="#F1F5F9">Auth &amp; Rate Limits</text>
+      <text x="12" y="42" font-family="ui-monospace, monospace" font-size="10" fill="#94A3B8">JWT + bcrypt</text>
+      <text x="12" y="56" font-family="ui-monospace, monospace" font-size="10" fill="#64748B">SlowAPI token bucket</text>
+    </g>
+
+    <g transform="translate(14, 130)">
+      <rect width="182" height="106" rx="6" fill="#0B1C1D" stroke="#059669" stroke-width="0.9"/>
+      <text x="12" y="24" font-family="-apple-system, sans-serif" font-size="12" font-weight="700" fill="#34D399">Postgres Job Queue</text>
+      <text x="12" y="42" font-family="ui-monospace, monospace" font-size="10" fill="#6EE7B7">FOR UPDATE SKIP LOCKED</text>
+      <text x="12" y="58" font-family="ui-monospace, monospace" font-size="10" fill="#A7F3D0">Lease reaper &amp; heartbeats</text>
+      <text x="12" y="74" font-family="ui-monospace, monospace" font-size="10" fill="#A7F3D0">Fair user scheduling</text>
+      <text x="12" y="90" font-family="ui-monospace, monospace" font-size="10" fill="#6EE7B7">Zero message drops</text>
+    </g>
+
+    <g transform="translate(14, 248)">
+      <rect width="182" height="60" rx="6" fill="#0E1726" stroke="#334155" stroke-width="0.8"/>
+      <text x="12" y="24" font-family="-apple-system, sans-serif" font-size="12" font-weight="600" fill="#F1F5F9">SSE Stream Bridge</text>
+      <text x="12" y="42" font-family="ui-monospace, monospace" font-size="10" fill="#94A3B8">GET /api/jobs/{id}/events</text>
+      <text x="12" y="54" font-family="ui-monospace, monospace" font-size="9" fill="#64748B">Heartbeats + reconnect</text>
+    </g>
+
+    <g transform="translate(14, 320)">
+      <rect width="182" height="54" rx="6" fill="#0E1726" stroke="#334155" stroke-width="0.8"/>
+      <text x="12" y="22" font-family="-apple-system, sans-serif" font-size="12" font-weight="600" fill="#F1F5F9">Observability</text>
+      <text x="12" y="40" font-family="ui-monospace, monospace" font-size="10" fill="#94A3B8">Langfuse + OpenTelemetry</text>
+    </g>
+  </g>
+
+  <!-- Connection 2 -> 3 -->
+  <path d="M 498 290 L 528 290" stroke="#34D399" stroke-width="1.5" stroke-dasharray="3,3"/>
+  <polygon points="528,290 522,287 522,293" fill="#34D399"/>
+
+  <!-- Layer 3: Agentic Reasoning Core -->
+  <g transform="translate(530, 96)">
+    <rect width="250" height="390" rx="10" fill="url(#layer-grad)" stroke="#1E293B" stroke-width="1.2"/>
+    <rect width="250" height="36" rx="10" fill="#1E293B" fill-opacity="0.6"/>
+    <text x="125" y="23" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="12" font-weight="700" fill="#FBBF24" text-anchor="middle">3 · LANGCHAIN AGENT CORE</text>
+
+    <!-- Supermemory rewrite -->
+    <g transform="translate(14, 48)">
+      <rect width="222" height="46" rx="6" fill="#181326" stroke="#7C3AED" stroke-width="0.8"/>
+      <text x="12" y="20" font-family="-apple-system, sans-serif" font-size="11" font-weight="700" fill="#C4B5FD">Context Rewriter (Supermemory)</text>
+      <text x="12" y="36" font-family="ui-monospace, monospace" font-size="10" fill="#A78BFA">Injects user tastes &amp; budget</text>
+    </g>
+
+    <!-- 4 Deterministic Tools -->
+    <g transform="translate(14, 102)">
+      <!-- Tool 1 -->
+      <rect width="222" height="60" rx="6" fill="#0C1D33" stroke="#2563EB" stroke-width="0.8"/>
+      <text x="10" y="20" font-family="ui-monospace, monospace" font-size="11" font-weight="700" fill="#60A5FA">Tool 1: Text-to-SQL (sql.py)</text>
+      <text x="10" y="36" font-family="-apple-system, sans-serif" font-size="10" fill="#93C5FD">Read-only catalogue queries</text>
+      <text x="10" y="50" font-family="ui-monospace, monospace" font-size="9" fill="#60A5FA">3,600+ shoes · stock &amp; ratings</text>
+
+      <!-- Tool 2 -->
+      <g transform="translate(0, 68)">
+        <rect width="222" height="60" rx="6" fill="#092520" stroke="#0D9488" stroke-width="0.8"/>
+        <text x="10" y="20" font-family="ui-monospace, monospace" font-size="11" font-weight="700" fill="#2DD4BF">Tool 2: FAQ RAG (faq.py)</text>
+        <text x="10" y="36" font-family="-apple-system, sans-serif" font-size="10" fill="#99F6E4">Pinecone semantic search</text>
+        <text x="10" y="50" font-family="ui-monospace, monospace" font-size="9" fill="#2DD4BF">Returns, shipping &amp; warranties</text>
+      </g>
+
+      <!-- Tool 3 -->
+      <g transform="translate(0, 136)">
+        <rect width="222" height="60" rx="6" fill="#1C182E" stroke="#7C3AED" stroke-width="0.8"/>
+        <text x="10" y="20" font-family="ui-monospace, monospace" font-size="11" font-weight="700" fill="#C4B5FD">Tool 3: Compare (compare.py)</text>
+        <text x="10" y="36" font-family="-apple-system, sans-serif" font-size="10" fill="#DDD6FE">Shortlist &amp; saved products</text>
+        <text x="10" y="50" font-family="ui-monospace, monospace" font-size="9" fill="#A78BFA">Head-to-head comparison join</text>
+      </g>
+
+      <!-- Tool 4 -->
+      <g transform="translate(0, 204)">
+        <rect width="222" height="64" rx="6" fill="#2E1818" stroke="#DC2626" stroke-width="0.8"/>
+        <text x="10" y="20" font-family="ui-monospace, monospace" font-size="11" font-weight="700" fill="#F87171">Tool 4: Cart &amp; Orders (orders.py)</text>
+        <text x="10" y="36" font-family="-apple-system, sans-serif" font-size="10" fill="#FECACA">Cart mutations &amp; checkouts</text>
+        <text x="10" y="50" font-family="ui-monospace, monospace" font-size="9" fill="#F87171">Atomic stock reservation &amp; orders</text>
+      </g>
+    </g>
+  </g>
+
+  <!-- Connection 3 -> 4 & 5 -->
+  <path d="M 780 220 L 810 220" stroke="#FBBF24" stroke-width="1.5" stroke-dasharray="3,3"/>
+  <polygon points="810,220 804,217 804,223" fill="#FBBF24"/>
+
+  <!-- Layer 4: Data Layer -->
+  <g transform="translate(812, 96)">
+    <rect width="160" height="390" rx="10" fill="url(#layer-grad)" stroke="#1E293B" stroke-width="1.2"/>
+    <rect width="160" height="36" rx="10" fill="#1E293B" fill-opacity="0.6"/>
+    <text x="80" y="23" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="12" font-weight="700" fill="#818CF8" text-anchor="middle">4 · DATA LAYER</text>
+
+    <!-- Postgres -->
+    <g transform="translate(12, 52)">
+      <rect width="136" height="154" rx="6" fill="#0D1527" stroke="#3B82F6" stroke-width="0.8"/>
+      <text x="10" y="24" font-family="-apple-system, sans-serif" font-size="12" font-weight="700" fill="#60A5FA">Neon Postgres</text>
+      <text x="10" y="44" font-family="ui-monospace, monospace" font-size="10" fill="#93C5FD">• products (catalog)</text>
+      <text x="10" y="60" font-family="ui-monospace, monospace" font-size="10" fill="#93C5FD">• accounts / auth</text>
+      <text x="10" y="76" font-family="ui-monospace, monospace" font-size="10" fill="#93C5FD">• chats &amp; messages</text>
+      <text x="10" y="92" font-family="ui-monospace, monospace" font-size="10" fill="#93C5FD">• jobs / job_events</text>
+      <text x="10" y="108" font-family="ui-monospace, monospace" font-size="10" fill="#93C5FD">• cart &amp; orders</text>
+      <text x="10" y="124" font-family="ui-monospace, monospace" font-size="10" fill="#93C5FD">• llm_cache</text>
+      <text x="10" y="140" font-family="ui-monospace, monospace" font-size="10" fill="#93C5FD">• provider keys</text>
+    </g>
+
+    <!-- Pinecone -->
+    <g transform="translate(12, 222)">
+      <rect width="136" height="152" rx="6" fill="#0A2024" stroke="#06B6D4" stroke-width="0.8"/>
+      <text x="10" y="24" font-family="-apple-system, sans-serif" font-size="12" font-weight="700" fill="#22D3EE">Pinecone Vector</text>
+      <text x="10" y="44" font-family="ui-monospace, monospace" font-size="10" fill="#A5F3FC">• 1024-dim vectors</text>
+      <text x="10" y="60" font-family="ui-monospace, monospace" font-size="10" fill="#A5F3FC">• cosine metric</text>
+      <text x="10" y="76" font-family="ui-monospace, monospace" font-size="10" fill="#A5F3FC">• store policies</text>
+      <text x="10" y="92" font-family="ui-monospace, monospace" font-size="10" fill="#A5F3FC">• return windows</text>
+      <text x="10" y="108" font-family="ui-monospace, monospace" font-size="10" fill="#A5F3FC">• shipping FAQs</text>
+      <text x="10" y="124" font-family="ui-monospace, monospace" font-size="10" fill="#A5F3FC">• account ops</text>
+    </g>
+  </g>
+
+  <!-- Layer 5: External AI Services -->
+  <g transform="translate(984, 96)">
+    <rect width="160" height="390" rx="10" fill="url(#layer-grad)" stroke="#1E293B" stroke-width="1.2"/>
+    <rect width="160" height="36" rx="10" fill="#1E293B" fill-opacity="0.6"/>
+    <text x="80" y="23" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="12" font-weight="700" fill="#F472B6" text-anchor="middle">5 · EXTERNAL AI</text>
+
+    <!-- Google Gemini -->
+    <g transform="translate(12, 52)">
+      <rect width="136" height="88" rx="6" fill="#171329" stroke="#A855F7" stroke-width="0.8"/>
+      <text x="10" y="22" font-family="-apple-system, sans-serif" font-size="12" font-weight="700" fill="#C084FC">Google Gemini</text>
+      <text x="10" y="40" font-family="ui-monospace, monospace" font-size="10" fill="#E9D5FF">• 2.5 Flash (routing)</text>
+      <text x="10" y="56" font-family="ui-monospace, monospace" font-size="10" fill="#E9D5FF">• 2.5 Pro (SQL failover)</text>
+      <text x="10" y="72" font-family="ui-monospace, monospace" font-size="10" fill="#E9D5FF">• 2.5 Flash (vision)</text>
+    </g>
+
+    <!-- Cloudflare Workers AI -->
+    <g transform="translate(12, 148)">
+      <rect width="136" height="74" rx="6" fill="#24140D" stroke="#EA580C" stroke-width="0.8"/>
+      <text x="10" y="22" font-family="-apple-system, sans-serif" font-size="12" font-weight="700" fill="#FB923C">Cloudflare AI</text>
+      <text x="10" y="40" font-family="ui-monospace, monospace" font-size="10" fill="#FED7AA">• gpt-oss-20b</text>
+      <text x="10" y="56" font-family="ui-monospace, monospace" font-size="10" fill="#FED7AA">• BYOK fallback</text>
+    </g>
+
+    <!-- Supermemory -->
+    <g transform="translate(12, 230)">
+      <rect width="136" height="74" rx="6" fill="#1C1329" stroke="#9333EA" stroke-width="0.8"/>
+      <text x="10" y="22" font-family="-apple-system, sans-serif" font-size="12" font-weight="700" fill="#D8B4FE">Supermemory</text>
+      <text x="10" y="40" font-family="ui-monospace, monospace" font-size="10" fill="#F3E8FF">• Persistent taste</text>
+      <text x="10" y="56" font-family="ui-monospace, monospace" font-size="10" fill="#F3E8FF">• Cross-chat recall</text>
+    </g>
+
+    <!-- Circuit Breaker -->
+    <g transform="translate(12, 312)">
+      <rect width="136" height="62" rx="6" fill="#1F1318" stroke="#E11D48" stroke-width="0.8"/>
+      <text x="10" y="20" font-family="-apple-system, sans-serif" font-size="11" font-weight="700" fill="#FB7185">Failover Circuit</text>
+      <text x="10" y="36" font-family="ui-monospace, monospace" font-size="10" fill="#FECDD3">• Auto provider trip</text>
+      <text x="10" y="50" font-family="ui-monospace, monospace" font-size="10" fill="#FECDD3">• Zero outage flow</text>
+    </g>
+  </g>
+</svg>
